@@ -3,76 +3,108 @@ type CbMapVal<T extends (...args: Parameters<T>) => ReturnType<T> = (...args: an
   args: Parameters<T>;
 };
 
-function createSignal<T extends Record<string, any>>(initVal: T) {
-  const cbMap = new Map<string, CbMapVal[]>();
-  const oriObj = initVal;
+class CreateReactiveSignal<T extends Record<string, any>> {
+  private cbMap: Map<string, CbMapVal[]>;
+  private oriObj: T;
+  private proxy: T;
 
-  const val = new Proxy(oriObj, {
-    set(target, prop, receiver) {
-      if (cbMap.has(prop as string) && JSON.stringify(target[prop as string]) !== JSON.stringify(receiver)) {
-        for (const item of cbMap.get(prop as string)!) {
-          item.cb(...item.args);
+  constructor(data: T) {
+    this.cbMap = new Map();
+    this.oriObj = data;
+    this.proxy = new Proxy(this.oriObj, this.proxyHandler());
+  }
+
+  private proxyHandler(): ProxyHandler<T> {
+    const map = this.cbMap;
+    return {
+      set(target, prop, receiver) {
+        if (map.has(prop as string) && JSON.stringify(target[prop as string]) !== JSON.stringify(receiver)) {
+          for (const item of map.get(prop as string)!) {
+            item.cb(...item.args);
+          }
         }
-      }
-      return Reflect.set(target, prop, receiver);
-    },
-  });
-
-  function getData() {
-    return oriObj;
+        return Reflect.set(target, prop, receiver);
+      },
+    };
   }
 
-  function setData(data: T) {
+  getData() {
+    return this.oriObj;
+  }
+
+  setData(data: T) {
     for (const key in data) {
-      val[key] = data[key];
+      this.proxy[key] = data[key];
     }
   }
 
-  function watchProp<T extends (...args: Parameters<T>) => ReturnType<T>>(
-    prop: keyof typeof oriObj,
-    data: CbMapVal<T>
-  ) {
-    if (cbMap.has(prop as string)) {
-      const tmpArr = cbMap.get(prop as string);
-      tmpArr?.push(data);
-      cbMap.set(prop as string, tmpArr!);
+  watchProp<T extends (...args: Parameters<T>) => ReturnType<T>>(prop: keyof typeof this.oriObj, handler: CbMapVal<T>) {
+    if (this.cbMap.has(prop as string)) {
+      const tmpArr = this.cbMap.get(prop as string);
+      tmpArr?.push(handler);
+      this.cbMap.set(prop as string, tmpArr!);
     } else {
-      cbMap.set(prop as string, [data]);
+      this.cbMap.set(prop as string, [handler]);
     }
   }
 
-  return { getData, setData, watchProp };
+  removeWatch<T extends (...args: Parameters<T>) => ReturnType<T>>(
+    prop: keyof typeof this.oriObj,
+    handler: CbMapVal<T>
+  ) {
+    if (!this.cbMap.has(prop as string)) return;
+
+    const handlerArr = this.cbMap.get(prop as string);
+
+    if (!handlerArr) return;
+
+    const handlerIdx = handlerArr.findIndex((h) => h.cb === handler.cb || h.cb.toString() === handler.cb.toString());
+
+    if (handlerIdx < 0) return;
+
+    handlerArr.splice(handlerIdx, 1);
+  }
 }
 
-const { getData, setData, watchProp } = createSignal({ num: 10, name: "john" });
+const sig = new CreateReactiveSignal({ name: "John wick", age: 40 });
 
-console.log("data", getData());
-
-setData({ ...getData(), name: "wick" });
-
-console.log("data", getData());
+console.log("data", sig.getData());
 
 function cb(data: { msg: string }) {
   console.log(data.msg);
 }
 
-watchProp("num", {
+sig.watchProp("age", {
   cb: cb,
   args: [{ msg: "hello" }],
 });
 
-watchProp("name", {
-  cb: () => {
-    console.log("2nd");
-  },
+sig.setData({ ...sig.getData(), age: 45 });
+
+console.log("data", sig.getData());
+
+function newCb() {
+  console.log("new func");
+}
+
+sig.watchProp("age", {
+  cb: newCb,
   args: [],
 });
 
-setData({ ...getData(), num: 40 });
+sig.setData({ ...sig.getData(), name: "Deadpool" });
 
-console.log("data", getData());
+console.log("data", sig.getData());
 
-setData({ ...getData(), name: "john" });
+sig.setData({ ...sig.getData(), age: 50 });
 
-console.log("data", getData());
-setData({ ...getData(), num: 40 });
+console.log("data", sig.getData());
+
+sig.removeWatch("age", {
+  cb: newCb,
+  args: [],
+});
+
+sig.setData({ ...sig.getData(), age: 30 });
+
+console.log("data", sig.getData());

@@ -1,56 +1,78 @@
 "use strict";
-function createSignal(initVal) {
-    const cbMap = new Map();
-    const oriObj = initVal;
-    const val = new Proxy(oriObj, {
-        set(target, prop, receiver) {
-            if (cbMap.has(prop) && JSON.stringify(target[prop]) !== JSON.stringify(receiver)) {
-                for (const item of cbMap.get(prop)) {
-                    item.cb(...item.args);
-                }
-            }
-            return Reflect.set(target, prop, receiver);
-        },
-    });
-    function getData() {
-        return oriObj;
+class CreateReactiveSignal {
+    constructor(data) {
+        this.cbMap = new Map();
+        this.oriObj = data;
+        this.proxy = new Proxy(this.oriObj, this.proxyHandler());
     }
-    function setData(data) {
+    proxyHandler() {
+        const map = this.cbMap;
+        return {
+            set(target, prop, receiver) {
+                if (map.has(prop) && JSON.stringify(target[prop]) !== JSON.stringify(receiver)) {
+                    for (const item of map.get(prop)) {
+                        item.cb(...item.args);
+                    }
+                }
+                return Reflect.set(target, prop, receiver);
+            },
+        };
+    }
+    getData() {
+        return this.oriObj;
+    }
+    setData(data) {
         for (const key in data) {
-            val[key] = data[key];
+            this.proxy[key] = data[key];
         }
     }
-    function watchProp(prop, data) {
-        if (cbMap.has(prop)) {
-            const tmpArr = cbMap.get(prop);
-            tmpArr === null || tmpArr === void 0 ? void 0 : tmpArr.push(data);
-            cbMap.set(prop, tmpArr);
+    watchProp(prop, handler) {
+        if (this.cbMap.has(prop)) {
+            const tmpArr = this.cbMap.get(prop);
+            tmpArr === null || tmpArr === void 0 ? void 0 : tmpArr.push(handler);
+            this.cbMap.set(prop, tmpArr);
         }
         else {
-            cbMap.set(prop, [data]);
+            this.cbMap.set(prop, [handler]);
         }
     }
-    return { getData, setData, watchProp };
+    removeWatch(prop, handler) {
+        if (!this.cbMap.has(prop))
+            return;
+        const handlerArr = this.cbMap.get(prop);
+        if (!handlerArr)
+            return;
+        const handlerIdx = handlerArr.findIndex((h) => h.cb === handler.cb || h.cb.toString() === handler.cb.toString());
+        if (handlerIdx < 0)
+            return;
+        handlerArr.splice(handlerIdx, 1);
+    }
 }
-const { getData, setData, watchProp } = createSignal({ num: 10, name: "john" });
-console.log("data", getData());
-setData(Object.assign(Object.assign({}, getData()), { name: "wick" }));
-console.log("data", getData());
+const sig = new CreateReactiveSignal({ name: "John wick", age: 40 });
+console.log("data", sig.getData());
 function cb(data) {
     console.log(data.msg);
 }
-watchProp("num", {
+sig.watchProp("age", {
     cb: cb,
     args: [{ msg: "hello" }],
 });
-watchProp("name", {
-    cb: () => {
-        console.log("2nd");
-    },
+sig.setData(Object.assign(Object.assign({}, sig.getData()), { age: 45 }));
+console.log("data", sig.getData());
+function newCb() {
+    console.log("new func");
+}
+sig.watchProp("age", {
+    cb: newCb,
     args: [],
 });
-setData(Object.assign(Object.assign({}, getData()), { num: 40 }));
-console.log("data", getData());
-setData(Object.assign(Object.assign({}, getData()), { name: "john" }));
-console.log("data", getData());
-setData(Object.assign(Object.assign({}, getData()), { num: 40 }));
+sig.setData(Object.assign(Object.assign({}, sig.getData()), { name: "Deadpool" }));
+console.log("data", sig.getData());
+sig.setData(Object.assign(Object.assign({}, sig.getData()), { age: 50 }));
+console.log("data", sig.getData());
+sig.removeWatch("age", {
+    cb: newCb,
+    args: [],
+});
+sig.setData(Object.assign(Object.assign({}, sig.getData()), { age: 30 }));
+console.log("data", sig.getData());
