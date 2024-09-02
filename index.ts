@@ -3,7 +3,7 @@ type CbMapVal<T extends (...args: Parameters<T>) => ReturnType<T> = (...args: an
   args: Parameters<T>;
 };
 
-class CreateReactiveSignal<T extends Record<string, any>> {
+class CreateReactiveSignal<T extends Record<string, any>, E extends Error> {
   private cbMap: Map<string, CbMapVal[]>;
   private oriObj: T;
   private proxy: T;
@@ -32,10 +32,19 @@ class CreateReactiveSignal<T extends Record<string, any>> {
     return this.oriObj;
   }
 
-  setData(data: T) {
-    for (const key in data) {
-      this.proxy[key] = data[key];
+  setData(data: T): null | E {
+    let resp = null;
+
+    try {
+      for (const key in data) {
+        if (!(key in this.proxy)) throw new Error("Argument passed does not match the internal object.");
+        this.proxy[key] = data[key];
+      }
+    } catch (error) {
+      resp = error as E;
     }
+
+    return resp;
   }
 
   watchProp<T extends (...args: Parameters<T>) => ReturnType<T>>(prop: keyof typeof this.oriObj, handler: CbMapVal<T>) {
@@ -51,18 +60,26 @@ class CreateReactiveSignal<T extends Record<string, any>> {
   removeWatch<T extends (...args: Parameters<T>) => ReturnType<T>>(
     prop: keyof typeof this.oriObj,
     handler: CbMapVal<T>
-  ) {
-    if (!this.cbMap.has(prop as string)) return;
+  ): null | E {
+    let resp = null;
 
-    const handlerArr = this.cbMap.get(prop as string);
+    try {
+      if (!this.cbMap.has(prop as string)) throw new Error("Prop not found.");
 
-    if (!handlerArr) return;
+      const handlerArr = this.cbMap.get(prop as string);
 
-    const handlerIdx = handlerArr.findIndex((h) => h.cb === handler.cb || h.cb.toString() === handler.cb.toString());
+      if (!handlerArr) throw new Error("Callback array not found.");
 
-    if (handlerIdx < 0) return;
+      const handlerIdx = handlerArr.findIndex((h) => h.cb === handler.cb || h.cb.toString() === handler.cb.toString());
 
-    handlerArr.splice(handlerIdx, 1);
+      if (handlerIdx < 0) throw new Error("Handler not found.");
+
+      handlerArr.splice(handlerIdx, 1);
+    } catch (error) {
+      resp = error as E;
+    }
+
+    return resp;
   }
 }
 

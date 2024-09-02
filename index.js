@@ -22,9 +22,18 @@ class CreateReactiveSignal {
         return this.oriObj;
     }
     setData(data) {
-        for (const key in data) {
-            this.proxy[key] = data[key];
+        let resp = null;
+        try {
+            for (const key in data) {
+                if (!(key in this.proxy))
+                    throw new Error("Argument passed does not match the internal object.");
+                this.proxy[key] = data[key];
+            }
         }
+        catch (error) {
+            resp = error;
+        }
+        return resp;
     }
     watchProp(prop, handler) {
         if (this.cbMap.has(prop)) {
@@ -37,15 +46,22 @@ class CreateReactiveSignal {
         }
     }
     removeWatch(prop, handler) {
-        if (!this.cbMap.has(prop))
-            return;
-        const handlerArr = this.cbMap.get(prop);
-        if (!handlerArr)
-            return;
-        const handlerIdx = handlerArr.findIndex((h) => h.cb === handler.cb || h.cb.toString() === handler.cb.toString());
-        if (handlerIdx < 0)
-            return;
-        handlerArr.splice(handlerIdx, 1);
+        let resp = null;
+        try {
+            if (!this.cbMap.has(prop))
+                throw new Error("Prop not found.");
+            const handlerArr = this.cbMap.get(prop);
+            if (!handlerArr)
+                throw new Error("Callback array not found.");
+            const handlerIdx = handlerArr.findIndex((h) => h.cb === handler.cb || h.cb.toString() === handler.cb.toString());
+            if (handlerIdx < 0)
+                throw new Error("Handler not found.");
+            handlerArr.splice(handlerIdx, 1);
+        }
+        catch (error) {
+            resp = error;
+        }
+        return resp;
     }
 }
 const sig = new CreateReactiveSignal({ name: "John wick", age: 40 });
