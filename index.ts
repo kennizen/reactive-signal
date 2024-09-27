@@ -3,35 +3,51 @@ type CbMapVal<T extends (...args: Parameters<T>) => ReturnType<T> = (...args: an
   args: Parameters<T>;
 };
 
-class CreateReactiveSignal<T extends Record<string, any>, E extends Error> {
+class Reactive<T extends Record<string, any>, E extends Error> {
   private cbMap: Map<string, CbMapVal[]>;
   private oriObj: T;
   private proxy: T;
 
+  /**
+   * Proxy initialization in the constructor
+   */
   constructor(data: T) {
     this.cbMap = new Map();
     this.oriObj = data;
     this.proxy = new Proxy(this.oriObj, this.proxyHandler());
   }
 
+  /**
+   * Proxy handler where the internal object method 'set' is intercepted to perform reactive side effects.
+   */
   private proxyHandler(): ProxyHandler<T> {
     const map = this.cbMap;
     return {
       set(target, prop, receiver) {
         if (map.has(prop as string) && JSON.stringify(target[prop as string]) !== JSON.stringify(receiver)) {
+          // reflect namespace used for default behaviour
+          Reflect.set(target, prop, receiver);
+
           for (const item of map.get(prop as string)!) {
             item.cb(...item.args);
           }
         }
+
         return Reflect.set(target, prop, receiver);
       },
     };
   }
 
+  /**
+   * Getter to get the original object
+   */
   getData() {
-    return this.oriObj;
+    return structuredClone(this.oriObj);
   }
 
+  /**
+   * Setter to update the object data
+   */
   setData(data: T): null | E {
     let resp = null;
 
@@ -47,7 +63,10 @@ class CreateReactiveSignal<T extends Record<string, any>, E extends Error> {
     return resp;
   }
 
-  watchProp<T extends (...args: Parameters<T>) => ReturnType<T>>(prop: keyof typeof this.oriObj, handler: CbMapVal<T>) {
+  /**
+   * Watch method to subscribe to an object prop for changes
+   */
+  subscribe<F extends (...args: Parameters<F>) => ReturnType<F>>(prop: keyof T, handler: CbMapVal<F>) {
     if (this.cbMap.has(prop as string)) {
       const tmpArr = this.cbMap.get(prop as string);
       tmpArr?.push(handler);
@@ -57,10 +76,10 @@ class CreateReactiveSignal<T extends Record<string, any>, E extends Error> {
     }
   }
 
-  removeWatch<T extends (...args: Parameters<T>) => ReturnType<T>>(
-    prop: keyof typeof this.oriObj,
-    handler: CbMapVal<T>
-  ): null | E {
+  /**
+   * Method to unsubscribe
+   */
+  unsubscribe(prop: keyof T, handler: (...args: any[]) => any): null | E {
     let resp = null;
 
     try {
@@ -70,7 +89,7 @@ class CreateReactiveSignal<T extends Record<string, any>, E extends Error> {
 
       if (!handlerArr) throw new Error("Callback array not found.");
 
-      const handlerIdx = handlerArr.findIndex((h) => h.cb === handler.cb || h.cb.toString() === handler.cb.toString());
+      const handlerIdx = handlerArr.findIndex((h) => h.cb === handler || h.cb.toString() === handler.toString());
 
       if (handlerIdx < 0) throw new Error("Handler not found.");
 
@@ -83,45 +102,68 @@ class CreateReactiveSignal<T extends Record<string, any>, E extends Error> {
   }
 }
 
-const sig = new CreateReactiveSignal({ name: "John wick", age: 40 });
+/**
+ * ---------------------------------------- Usage examples ----------------------------------------
+ */
 
-console.log("data", sig.getData());
+const person = {
+  info: {
+    firstname: "John",
+    lastname: "Doe",
+    age: 40,
+  },
+  job: {
+    location: "onsite",
+  },
+};
 
-function cb(data: { msg: string }) {
-  console.log(data.msg);
+/**
+ * Object for the reactive class
+ */
+const employee = new Reactive(person);
+
+/**
+ * Handlers that will be used to subscribe to a prop in the init object
+ */
+function printNewLocation(zipcode: string) {
+  console.log(`New job location is ${employee.getData().job.location} with zipcode ${zipcode}`);
 }
 
-sig.watchProp("age", {
-  cb: cb,
-  args: [{ msg: "hello" }],
+function printNewName() {
+  console.log(`New name is ${employee.getData().info.firstname} ${employee.getData().info.lastname}`);
+}
+
+/**
+ * Subscribing to the job prop of the init object
+ */
+employee.subscribe("job", {
+  cb: printNewLocation,
+  args: ["123456"],
 });
 
-sig.setData({ ...sig.getData(), age: 45 });
-
-console.log("data", sig.getData());
-
-function newCb() {
-  console.log("new func");
-}
-
-sig.watchProp("age", {
-  cb: newCb,
+/**
+ * Subscribing to the info prop of the init object
+ */
+employee.subscribe("info", {
+  cb: printNewName,
   args: [],
 });
 
-sig.setData({ ...sig.getData(), name: "Deadpool" });
+/**
+ * After subscribing when we set new data for any of the subcscribed prop the handlers
+ * used for subscribtion will be executed
+ */
+employee.setData({ ...employee.getData(), job: { location: "remote" } });
+employee.setData({ ...employee.getData(), info: { ...employee.getData().info, firstname: "Jhonny" } });
 
-console.log("data", sig.getData());
+/**
+ * Unsubscribing from the job prop
+ * So now even if we update the job property of the object with new data
+ * the handler will no be executed.
+ */
+employee.unsubscribe("job", printNewLocation);
 
-sig.setData({ ...sig.getData(), age: 50 });
-
-console.log("data", sig.getData());
-
-sig.removeWatch("age", {
-  cb: newCb,
-  args: [],
-});
-
-sig.setData({ ...sig.getData(), age: 30 });
-
-console.log("data", sig.getData());
+/**
+ * After this line you will see that the 'printNewLocation' handler is not invoked
+ */
+employee.setData({ ...employee.getData(), job: { location: "onsite" } });
